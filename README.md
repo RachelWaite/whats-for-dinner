@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🍽️ What's For Dinner?
 
 > Plan smarter. Never ask again.
@@ -152,3 +153,7 @@ service cloud.firestore {
 ---
 
 *Built with ☕ and a lot of "what's for dinner?" conversations.*
+=======
+# whats-for-dinner
+Weekly meal planning assistant to reduce mental load 
+>>>>>>> ffadcb4eb1ed708286bce6472f7263d510cf5fa4
