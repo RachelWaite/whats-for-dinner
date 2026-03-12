@@ -214,13 +214,13 @@ const css = `
 // ─────────────────────────────────────────────────────────────────────────────
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const CATEGORIES = [
-  {name:"Beef",emoji:"🥩"},{name:"Chicken",emoji:"🍗"},{name:"Seafood",emoji:"🐟"},
-  {name:"Vegetarian",emoji:"🥦"},{name:"Pasta",emoji:"🍝"},{name:"Dessert",emoji:"🍰"},
-  {name:"Breakfast",emoji:"🍳"},{name:"Side",emoji:"🥗"},{name:"Lamb",emoji:"🍖"},
-  {name:"Miscellaneous",emoji:"🍽️"},
+  {name:"breakfast",emoji:"🍳"},{name:"lunch",emoji:"🥪"},
+  {name:"dinner",emoji:"🍽️"},{name:"snack",emoji:"🍎"},
+  {name:"teatime",emoji:"🫖"},
 ];
-const AREAS = ["American","British","Canadian","Chinese","French","Greek","Indian","Italian","Japanese","Mexican","Moroccan","Spanish","Thai","Turkish"];
-const BASE = "https://www.themealdb.com/api/json/v1/1";
+const AREAS = ["American","Asian","British","Caribbean","Central Europe","Chinese","Eastern Europe","French","Indian","Italian","Japanese","Kosher","Mediterranean","Mexican","Middle Eastern","Nordic","South American","South East Asian"];
+const SPOON_KEY = import.meta.env.VITE_SPOONACULAR_API_KEY;
+const SPOON = "/api/spoonacular";
 const EMPTY_PLAN = () => { const p={}; DAYS.forEach(d=>p[d]=[]); return p; };
 const MEAL_TYPES = ["Breakfast","Lunch","Dinner","Snack","School Lunchbox","Other"];
 const MEAL_TYPE_EMOJI = {Breakfast:"🍳",Lunch:"🥪",Dinner:"🍽️",Snack:"🍎","School Lunchbox":"🎒",Other:"✨"};
@@ -235,17 +235,56 @@ const NAV_ITEMS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MEALDB API
+// EDAMAM API (via Firebase Cloud Function proxy)
 // ─────────────────────────────────────────────────────────────────────────────
-function parseMeal(m) {
-  const ingredients = [];
-  for (let i = 1; i <= 20; i++) {
-    const name = m[`strIngredient${i}`]; const measure = m[`strMeasure${i}`];
-    if (name && name.trim()) ingredients.push({ name: name.trim(), amount: measure ? measure.trim() : "" });
-  }
-  return { id: m.idMeal, title: m.strMeal, cuisine: m.strArea||"", category: m.strCategory||"", image: m.strMealThumb||"", youtube: m.strYoutube||"", url: "", source: "MealDB", ingredients, steps: (m.strInstructions||"").split(/\r?\n/).filter(s=>s.trim().length>15), servings: 4 };
+const FUNCTIONS_BASE = import.meta.env.DEV
+  ? "http://127.0.0.1:5001/whats-for-dinner-ab2c4/us-central1"
+  : "https://us-central1-whats-for-dinner-ab2c4.cloudfunctions.net";
+
+function parseEdamamRecipe(r) {
+  const recipe = r.recipe || r;
+  const ingredients = (recipe.ingredients||[]).map(i=>({ name:i.food||"", amount:`${i.quantity?Number(i.quantity).toFixed(1):""} ${i.measure&&i.measure!=="<unit>"?i.measure:""}`.trim() }));
+  const nutrition = recipe.totalNutrients ? {
+    calories: Math.round(recipe.calories||0),
+    protein:  Math.round(recipe.totalNutrients.PROCNT?.quantity||0),
+    carbs:    Math.round(recipe.totalNutrients.CHOCDF?.quantity||0),
+    fat:      Math.round(recipe.totalNutrients.FAT?.quantity||0),
+    fiber:    Math.round(recipe.totalNutrients.FIBTG?.quantity||0),
+    sugar:    Math.round(recipe.totalNutrients.SUGAR?.quantity||0),
+  } : null;
+  const id = (r._links?.self?.href || recipe.uri || "").split("#recipe_").pop();
+  return {
+    id,
+    title: recipe.label||"",
+    cuisine: recipe.cuisineType?.[0]||"",
+    category: recipe.mealType?.[0]||recipe.dishType?.[0]||"",
+    image: recipe.image||"",
+    url: recipe.url||"",
+    source: "Edamam",
+    ingredients,
+    steps: [],
+    servings: recipe.yield||4,
+    readyInMinutes: recipe.totalTime||null,
+    nutrition,
+  };
 }
-async function fetchById(id) { const r=await fetch(`${BASE}/lookup.php?i=${id}`); const d=await r.json(); return d.meals?parseMeal(d.meals[0]):null; }
+async function edamamSearch({query,ingredient,cuisine,mealType,maxResults=20}) {
+  const params = new URLSearchParams({ from:0, to:maxResults });
+  if(query) params.set("q", query);
+  else params.set("q", ingredient||cuisine||mealType||"");
+  if(cuisine) params.set("cuisineType", cuisine);
+  if(mealType) params.set("mealType", mealType);
+  const r = await fetch(`${FUNCTIONS_BASE}/edamamSearch?${params}`);
+  const d = await r.json();
+  if(d.error) throw new Error(d.error);
+  return (d.hits||[]).map(parseEdamamRecipe);
+}
+async function edamamFetchById(id) {
+  const r = await fetch(`${FUNCTIONS_BASE}/edamamById?id=${encodeURIComponent(id)}`);
+  const d = await r.json();
+  if(d.error) throw new Error(d.error);
+  return parseEdamamRecipe(d);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QUANTITY HELPERS
@@ -361,6 +400,7 @@ function MainApp({ user }) {
   const [activeCategory,setActiveCategory]=useState("");
   const [activeArea,setActiveArea]=useState("");
   const [maxResults,setMaxResults]=useState(20);
+  const [nutritionDisplay,setNutritionDisplay]=useState("calories"); // "none","calories","full"
   // Modals
   const [selected,setSelected]=useState(null);
   const [showCustomForm,setShowCustomForm]=useState(false);
@@ -375,7 +415,9 @@ function MainApp({ user }) {
   const getWeekStamp = () => { const d=new Date(); const day=d.getDay(); const diff=d.getDate()-(day===0?6:day-1); const mon=new Date(d.setDate(diff)); return mon.toISOString().split("T")[0]; };
   const getWeekLabel = stamp => { const d=new Date(stamp+"T00:00:00"); return `Week of ${d.toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"})}`; };
 
-  useEffect(()=>{ (async()=>{ setDataLoading(true); const[f,p,sp,ci,cr,settings,prefs]=await Promise.all([fsGet(uid,"data/favourites"),fsGet(uid,"data/mealPlan"),fsGetCollection(uid,"savedPlans"),fsGet(uid,"data/customItems"),fsGetCollection(uid,"customRecipes"),fsGet(uid,"data/settings"),fsGet(uid,"data/recipePrefs")]); if(f?.items)setFavourites(f.items); if(sp.length)setSavedPlans(sp.sort((a,b)=>(b.savedAt?.seconds||0)-(a.savedAt?.seconds||0))); if(ci?.items)setCustomItems(ci.items); if(cr.length)setCustomRecipes(cr.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))); if(settings?.maxResults)setMaxResults(settings.maxResults); if(settings?.defaultServings)setDefaultServings(settings.defaultServings); if(prefs?.map)setRecipePrefs(prefs.map);
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2400); };
+
+  useEffect(()=>{ (async()=>{ setDataLoading(true); const[f,p,sp,ci,cr,settings,prefs]=await Promise.all([fsGet(uid,"data/favourites"),fsGet(uid,"data/mealPlan"),fsGetCollection(uid,"savedPlans"),fsGet(uid,"data/customItems"),fsGetCollection(uid,"customRecipes"),fsGet(uid,"data/settings"),fsGet(uid,"data/recipePrefs")]); if(f?.items)setFavourites(f.items); if(sp.length)setSavedPlans(sp.sort((a,b)=>(b.savedAt?.seconds||0)-(a.savedAt?.seconds||0))); if(ci?.items)setCustomItems(ci.items); if(cr.length)setCustomRecipes(cr.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))); if(settings?.maxResults)setMaxResults(settings.maxResults); if(settings?.defaultServings)setDefaultServings(settings.defaultServings); if(settings?.nutritionDisplay)setNutritionDisplay(settings.nutritionDisplay); if(prefs?.map)setRecipePrefs(prefs.map);
     // Check if week has changed — auto-archive old plan if so
     const currentStamp=getWeekStamp();
     if(p?.plan&&p?.weekStamp&&p.weekStamp!==currentStamp){
@@ -403,7 +445,8 @@ function MainApp({ user }) {
   const saveRecipePref = async (recipeId, mealType) => { const updated={...recipePrefs,[recipeId]:mealType}; setRecipePrefs(updated); await fsSet(uid,"data/recipePrefs",{map:updated}); };
   const savePlan = async v => { setMealPlan(v); await fsSet(uid,"data/mealPlan",{plan:v,weekStamp:getWeekStamp()}); };
   const saveCustomItems = async v => { setCustomItems(v); await fsSet(uid,"data/customItems",{items:v}); };
-  const saveMaxResults = async v => { setMaxResults(v); await fsSet(uid,"data/settings",{maxResults:v}); };
+  const saveMaxResults = async v => { setMaxResults(v); await fsSet(uid,"data/settings",{maxResults:v,defaultServings,nutritionDisplay}); };
+  const saveNutritionDisplay = async v => { setNutritionDisplay(v); await fsSet(uid,"data/settings",{maxResults,defaultServings,nutritionDisplay:v}); };
   const isFav = id => favourites.some(f=>f.id===id);
   const toggleFav = recipe => { if(isFav(recipe.id)){saveFavs(favourites.filter(f=>f.id!==recipe.id));showToast("Removed from saved recipes");}else{saveFavs([...favourites,recipe]);showToast("❤️ Saved to recipes!");} };
   const addToPlan = (recipe,day,servings) => { const s=servings??recipe.servings??defaultServings; savePlan({...mealPlan,[day]:[...mealPlan[day],{...recipe,plannedServings:s}]}); showToast(`✅ Added to this week's plan!`); };
@@ -437,33 +480,23 @@ function MainApp({ user }) {
   const handleSearch = async () => {
     setLoading(true); setRecipes([]);
     try {
-      let raw=[];
+      let results=[];
       if(searchMode==="keyword"&&query.trim()){
-        const r=await fetch(`${BASE}/search.php?s=${encodeURIComponent(query)}`);
-        const d=await r.json(); raw=(d.meals||[]).map(parseMeal);
+        results=await edamamSearch({query:query.trim(),maxResults});
       } else if(searchMode==="ingredient"&&ingredientQuery.trim()){
-        const r=await fetch(`${BASE}/filter.php?i=${encodeURIComponent(ingredientQuery.trim())}`);
-        const d=await r.json();
-        const ids=(d.meals||[]).slice(0,maxResults);
-        raw=await Promise.all(ids.map(m=>fetchById(m.idMeal)));
-        raw=raw.filter(Boolean);
+        results=await edamamSearch({ingredient:ingredientQuery.trim(),maxResults});
       } else if(searchMode==="category"&&activeCategory){
-        const r=await fetch(`${BASE}/filter.php?c=${encodeURIComponent(activeCategory)}`);
-        const d=await r.json();
-        raw=await Promise.all((d.meals||[]).slice(0,maxResults).map(m=>fetchById(m.idMeal)));
-        raw=raw.filter(Boolean);
+        results=await edamamSearch({mealType:activeCategory.toLowerCase(),maxResults});
       } else if(searchMode==="cuisine"&&activeArea){
-        const r=await fetch(`${BASE}/filter.php?a=${encodeURIComponent(activeArea)}`);
-        const d=await r.json();
-        raw=await Promise.all((d.meals||[]).slice(0,maxResults).map(m=>fetchById(m.idMeal)));
-        raw=raw.filter(Boolean);
+        results=await edamamSearch({cuisine:activeArea.toLowerCase(),maxResults});
       }
-
-      // Apply active smart filters as post-processing
-      const filtered=raw;
-      setRecipes(filtered);
-      if(!filtered.length) showToast("No recipes found — try something else!");
-    } catch(e){ console.error(e); showToast("Search failed — check your connection"); }
+      setRecipes(results);
+      if(!results.length) showToast("No recipes found — try something else!");
+    } catch(e){
+      console.error(e);
+      const msg = e.message?.includes("quota") ? "Monthly API limit reached!" : "Search failed — please try again";
+      showToast(msg);
+    }
     setLoading(false);
   };
 
@@ -609,7 +642,7 @@ function MainApp({ user }) {
 
           {!loading&&!recipes.length&&<div className="empty-state"><div className="emoji">🍳</div><h3>What are you craving?</h3><p>Search by keyword, find recipes using a specific ingredient, browse by category, or explore a cuisine</p></div>}
 
-          {recipes.map(r=><RecipeCard key={r.id} recipe={r} isFav={isFav(r.id)} onFav={()=>toggleFav(r)} onView={()=>setSelected(r)} onAddToThisWeek={(selDays,mealType)=>selDays.forEach(d=>addToPlan({...r,mealType},d))} onAddToNewPlan={(selDays,mealType)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:r.servings??defaultServings}]); setNewPlanSeed({plan:seed}); }} onAddToExistingPlan={(sp,selDays,mealType)=>addToExistingPlan(sp,{...r,mealType},selDays)} savedPlans={savedPlans} days={DAYS} savedMealType={recipePrefs[r.id]} onSaveMealType={mt=>saveRecipePref(r.id,mt)}/>)}
+          {recipes.map(r=><RecipeCard key={r.id} recipe={r} isFav={isFav(r.id)} onFav={()=>toggleFav(r)} onView={()=>setSelected(r)} onAddToThisWeek={(selDays,mealType)=>selDays.forEach(d=>addToPlan({...r,mealType},d))} onAddToNewPlan={(selDays,mealType)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:r.servings??defaultServings}]); setNewPlanSeed({plan:seed}); }} onAddToExistingPlan={(sp,selDays,mealType)=>addToExistingPlan(sp,{...r,mealType},selDays)} savedPlans={savedPlans} days={DAYS} savedMealType={recipePrefs[r.id]} onSaveMealType={mt=>saveRecipePref(r.id,mt)} nutritionDisplay={nutritionDisplay}/>)}
         </div>
       </>}
 
@@ -620,7 +653,7 @@ function MainApp({ user }) {
           <button className="btn btn-forest btn-full" style={{marginBottom:18}} onClick={()=>setShowCustomForm(true)}>✏️ Create your own recipe</button>
           {customRecipes.length>0&&<><div className="section-divider"><span>My Recipes</span><div className="section-divider-line"/></div>{customRecipes.map(r=><CustomRecipeCard key={r.id} recipe={r} onAddToThisWeek={selDays=>selDays.forEach(d=>addToPlan(r,d))} onAddToNewPlan={selDays=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,plannedServings:r.servings??defaultServings}]); setNewPlanSeed({plan:seed}); }} onAddToExistingPlan={(sp,selDays)=>addToExistingPlan(sp,r,selDays)} savedPlans={savedPlans} onDelete={()=>deleteCustomRecipe(r.id)} onEdit={()=>setEditingRecipe(r)} days={DAYS}/>)}</>}
           <div className="section-divider"><span>Saved from Search</span><div className="section-divider-line"/></div>
-          {!favourites.length?<div className="empty-state" style={{padding:"30px 0"}}><div className="emoji">❤️</div><h3>No saved recipes yet</h3><p>Search for recipes and tap the heart to save them here</p></div>:favourites.map(r=><RecipeCard key={r.id} recipe={r} isFav={true} onFav={()=>toggleFav(r)} onView={()=>setSelected(r)} onAddToThisWeek={(selDays,mealType)=>selDays.forEach(d=>addToPlan({...r,mealType},d))} onAddToNewPlan={(selDays,mealType)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:r.servings??defaultServings}]); setNewPlanSeed({plan:seed}); }} onAddToExistingPlan={(sp,selDays,mealType)=>addToExistingPlan(sp,{...r,mealType},selDays)} savedPlans={savedPlans} days={DAYS} savedMealType={recipePrefs[r.id]} onSaveMealType={mt=>saveRecipePref(r.id,mt)}/>)}
+          {!favourites.length?<div className="empty-state" style={{padding:"30px 0"}}><div className="emoji">❤️</div><h3>No saved recipes yet</h3><p>Search for recipes and tap the heart to save them here</p></div>:favourites.map(r=><RecipeCard key={r.id} recipe={r} isFav={true} onFav={()=>toggleFav(r)} onView={()=>setSelected(r)} onAddToThisWeek={(selDays,mealType)=>selDays.forEach(d=>addToPlan({...r,mealType},d))} onAddToNewPlan={(selDays,mealType)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:r.servings??defaultServings}]); setNewPlanSeed({plan:seed}); }} onAddToExistingPlan={(sp,selDays,mealType)=>addToExistingPlan(sp,{...r,mealType},selDays)} savedPlans={savedPlans} days={DAYS} savedMealType={recipePrefs[r.id]} onSaveMealType={mt=>saveRecipePref(r.id,mt)} nutritionDisplay={nutritionDisplay}/>)}
         </div>
       </>}
 
@@ -733,6 +766,20 @@ function MainApp({ user }) {
               <select className="plan-select" style={{width:"100%"}} value={maxResults} onChange={e=>saveMaxResults(Number(e.target.value))}>
                 {[8,12,16,20,30,50].map(n=><option key={n} value={n}>{n} results</option>)}
               </select>
+            </div>
+          </div>
+          <div className="recipe-card" style={{marginBottom:16}}>
+            <div className="recipe-card-body">
+              <div className="modal-section-title" style={{marginBottom:4}}>Recipe card nutrition</div>
+              <p style={{fontSize:13,color:"var(--muted)",marginBottom:14,lineHeight:1.5}}>Choose how much nutrition info to show on recipe cards. Full details are always available inside the recipe.</p>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[{val:"none",label:"None — keep cards clean"},{val:"calories",label:"Calories only"},{val:"full",label:"Calories + Protein / Carbs / Fat"}].map(opt=>(
+                  <label key={opt.val} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",fontSize:13}}>
+                    <input type="radio" name="nutritionDisplay" value={opt.val} checked={nutritionDisplay===opt.val} onChange={()=>saveNutritionDisplay(opt.val)} style={{accentColor:"var(--terracotta)"}}/>
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
           <div className="divider" style={{marginTop:28}}/>
@@ -864,7 +911,26 @@ function CustomItemInput({onAdd}){
   return<><input value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Add your own item… (e.g. toilet paper)"/><button className="add-item-btn" onClick={submit}>Add</button></>;
 }
 
-function RecipeCard({recipe,isFav,onFav,onView,onAddToThisWeek,onAddToNewPlan,onAddToExistingPlan,savedPlans=[],days,savedMealType,onSaveMealType}){
+function NutritionPills({nutrition,display,servings=1,plannedServings=1}){
+  if(!nutrition||display==="none")return null;
+  const scale=plannedServings/servings;
+  const cal=Math.round(nutrition.calories*scale);
+  if(display==="calories") return(
+    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,background:"#FFF3E0",color:"#E65100",borderRadius:20,padding:"3px 9px",fontWeight:600}}>🔥 {cal} kcal</span>
+    </div>
+  );
+  return(
+    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,background:"#FFF3E0",color:"#E65100",borderRadius:20,padding:"3px 9px",fontWeight:600}}>🔥 {cal} kcal</span>
+      <span style={{fontSize:11,background:"#E8F5E9",color:"#2E7D32",borderRadius:20,padding:"3px 9px",fontWeight:600}}>P {Math.round(nutrition.protein*scale)}g</span>
+      <span style={{fontSize:11,background:"#E3F2FD",color:"#1565C0",borderRadius:20,padding:"3px 9px",fontWeight:600}}>C {Math.round(nutrition.carbs*scale)}g</span>
+      <span style={{fontSize:11,background:"#FFF8E1",color:"#F57F17",borderRadius:20,padding:"3px 9px",fontWeight:600}}>F {Math.round(nutrition.fat*scale)}g</span>
+    </div>
+  );
+}
+
+function RecipeCard({recipe,isFav,onFav,onView,onAddToThisWeek,onAddToNewPlan,onAddToExistingPlan,savedPlans=[],days,savedMealType,onSaveMealType,nutritionDisplay="calories"}){
   const DAY_SHORT={Monday:"M",Tuesday:"T",Wednesday:"W",Thursday:"T",Friday:"F",Saturday:"S",Sunday:"S"};
   const [selectedDays,setSelectedDays]=useState([]);
   const [mealType,setMealType]=useState(savedMealType||"");
@@ -893,7 +959,8 @@ function RecipeCard({recipe,isFav,onFav,onView,onAddToThisWeek,onAddToNewPlan,on
       </div>
       <div className="recipe-card-body">
         <div className="recipe-card-title">{recipe.title}</div>
-        <div className="recipe-card-meta">{recipe.cuisine&&<span className="meta-tag">🌍 {recipe.cuisine}</span>}{recipe.category&&<span className="meta-tag">🗂 {recipe.category}</span>}<span className="meta-tag">🥄 {recipe.ingredients.length} ingredients</span></div>
+        <div className="recipe-card-meta">{recipe.cuisine&&<span className="meta-tag">🌍 {recipe.cuisine}</span>}{recipe.category&&<span className="meta-tag">🗂 {recipe.category}</span>}<span className="meta-tag">🥄 {recipe.ingredients.length} ingredients</span>{recipe.readyInMinutes&&<span className="meta-tag">⏱ {recipe.readyInMinutes}m</span>}</div>
+        <NutritionPills nutrition={recipe.nutrition} display={nutritionDisplay} servings={recipe.servings||4}/>
         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
           {["Breakfast","Lunch","Dinner","Snack"].map(mt=>(
             <button key={mt} onClick={()=>{setMealType(mt);onSaveMealType(mt);setShowMealTypePicker(false);}}
@@ -1033,8 +1100,30 @@ function RecipeModal({recipe,isFav,onClose,onFav,onAddToPlan,days,defaultServing
         </div>
         {recipe.image&&<img className="modal-img" src={recipe.image} alt={recipe.title}/>}
         <div className="modal-title">{recipe.title}</div>
-        <div className="recipe-card-meta" style={{marginBottom:10}}>{recipe.cuisine&&<span className="meta-tag">🌍 {recipe.cuisine}</span>}{recipe.category&&<span className="meta-tag">🗂 {recipe.category}</span>}<span className="meta-tag">🥄 {recipe.ingredients.length} ingredients</span></div>
-        {recipe.youtube&&<a className="yt-btn" href={recipe.youtube} target="_blank" rel="noreferrer">▶ Watch on YouTube</a>}
+        <div className="recipe-card-meta" style={{marginBottom:10}}>
+          {recipe.cuisine&&<span className="meta-tag">🌍 {recipe.cuisine}</span>}
+          {recipe.category&&<span className="meta-tag">🗂 {recipe.category}</span>}
+          <span className="meta-tag">🥄 {recipe.ingredients.length} ingredients</span>
+          {recipe.readyInMinutes&&<span className="meta-tag">⏱ {recipe.readyInMinutes}m</span>}
+        </div>
+        {recipe.nutrition&&(
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+            {[
+              {label:"Calories",val:Math.round(recipe.nutrition.calories*ratio),unit:"kcal",bg:"#FFF3E0",color:"#E65100"},
+              {label:"Protein",val:Math.round(recipe.nutrition.protein*ratio),unit:"g",bg:"#E8F5E9",color:"#2E7D32"},
+              {label:"Carbs",val:Math.round(recipe.nutrition.carbs*ratio),unit:"g",bg:"#E3F2FD",color:"#1565C0"},
+              {label:"Fat",val:Math.round(recipe.nutrition.fat*ratio),unit:"g",bg:"#FFF8E1",color:"#F57F17"},
+              {label:"Fibre",val:Math.round(recipe.nutrition.fiber*ratio),unit:"g",bg:"#F3E5F5",color:"#6A1B9A"},
+              {label:"Sugar",val:Math.round(recipe.nutrition.sugar*ratio),unit:"g",bg:"#FCE4EC",color:"#880E4F"},
+            ].map(n=>(
+              <div key={n.label} style={{background:n.bg,borderRadius:10,padding:"8px 12px",textAlign:"center",minWidth:64}}>
+                <div style={{fontSize:15,fontWeight:700,color:n.color}}>{n.val}{n.unit}</div>
+                <div style={{fontSize:10,color:n.color,opacity:0.8}}>{n.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {recipe.url&&<a className="yt-btn" href={recipe.url} target="_blank" rel="noreferrer">🔗 View Original Recipe</a>}
         <div className="divider"/>
         <div className="servings-row"><span className="servings-label">Adjust servings</span><button className="serving-btn" onClick={()=>setServings(s=>Math.max(1,s-1))}>−</button><span className="serving-count" style={{fontSize:15,fontWeight:700,minWidth:26,textAlign:"center"}}>{servings}</span><button className="serving-btn" onClick={()=>setServings(s=>s+1)}>+</button></div>
         <div className="tab-row"><button className={`tab-btn ${modTab==="ingredients"?"active":""}`} onClick={()=>setModTab("ingredients")}>Ingredients</button><button className={`tab-btn ${modTab==="steps"?"active":""}`} onClick={()=>setModTab("steps")}>Steps</button></div>
