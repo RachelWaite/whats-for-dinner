@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc, collection, addDoc, deleteDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import { Home, Search, Heart, ChefHat, BookMarked, CalendarDays, ShoppingCart, Settings } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STYLES
@@ -224,15 +225,15 @@ const BASE = "https://www.themealdb.com/api/json/v1/1";
 const EMPTY_PLAN = () => { const p={}; DAYS.forEach(d=>p[d]=[]); return p; };
 const MEAL_TYPES = ["Breakfast","Lunch","Dinner","Snack","School Lunchbox","Other"];
 const MEAL_TYPE_EMOJI = {Breakfast:"🍳",Lunch:"🥪",Dinner:"🍽️",Snack:"🍎","School Lunchbox":"🎒",Other:"✨"};
-const NAV_ITEMS = [
-  {id:"home",icon:"🏠",label:"Home"},
-  {id:"search",icon:"🔍",label:"Search"},
-  {id:"favs",icon:"❤️",label:"Saved Recipes"},
-  {id: "mymeals",icon:"🍳",label:"My Meals"},
-  {id:"savedplans",icon:"📋",label:"Plans"},
-  {id:"plan",icon:"📅",label:"This Week"},
-  {id:"shop",icon:"🛒",label:"Shop"},
-  {id:"settings",icon:"⚙️",label:"Settings"},
+const NAV_ITEMS=[
+  {id:"home",icon:Home,label:"Home"},
+  {id:"search",icon:Search,label:"Search"},
+  {id:"favs",icon:Heart,label:"Saved Recipes"},
+  {id:"mymeals",icon:ChefHat,label:"My Meals"},
+  {id:"savedplans",icon:BookMarked,label:"Plans"},
+  {id:"plan",icon:CalendarDays,label:"This Week"},
+  {id:"shop",icon:ShoppingCart,label:"Shop"},
+  {id:"settings",icon:Settings,label:"Settings"},
 ];
 
 function parseMeal(m) {
@@ -861,7 +862,7 @@ const handleSearch = async () => {
         <div className="side-nav-logo" style={{cursor:"pointer"}} onClick={()=>setTab("home")}>What's for <em>Dinner?</em></div>
         {NAV_ITEMS.map(n=>(
           <button key={n.id} className={`side-nav-btn ${tab===n.id?"active":""}`} onClick={()=>setTab(n.id)}>
-            <span className="nav-icon">{n.icon}</span>{n.label}
+            <span className="nav-icon"><n.icon size={20} strokeWidth={1.8}/></span>{n.label}
           </button>
         ))}
         <div className="side-nav-bottom">
@@ -876,7 +877,7 @@ const handleSearch = async () => {
       <nav className="bottom-nav">
         {NAV_ITEMS.map(n=>(
           <button key={n.id} className={`nav-btn ${tab===n.id?"active":""}`} onClick={()=>setTab(n.id)}>
-            <span className="nav-icon">{n.icon}</span>{n.label}
+            <span className="nav-icon"><n.icon size={20} strokeWidth={1.8}/></span>{n.label}
           </button>
         ))}
       </nav>
