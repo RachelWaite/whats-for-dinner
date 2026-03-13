@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInAnonymously, linkWithCredential, EmailAuthProvider } from "firebase/auth";
 import { doc, getDoc, setDoc, collection, addDoc, deleteDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { Home, ChefHat, Notebook, ShoppingCart, Ellipsis, Search, Heart, BookMarked, CalendarDays, Settings } from "lucide-react";
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STYLES
@@ -305,6 +306,38 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
+function GuestSignUpForm({auth,onSuccess}){
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [confirm,setConfirm]=useState("");
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const submit=async()=>{
+    setError("");
+    if(!email||!password){setError("Please fill in all fields.");return;}
+    if(password!==confirm){setError("Passwords don't match.");return;}
+    if(password.length<6){setError("Password must be at least 6 characters.");return;}
+    setLoading(true);
+    try{
+      const credential=EmailAuthProvider.credential(email,password);
+      await linkWithCredential(auth.currentUser,credential);
+      onSuccess();
+    }catch(e){
+      setError(e.code==="auth/email-already-in-use"?"An account with this email already exists.":"Something went wrong — please try again.");
+    }
+    setLoading(false);
+  };
+  return(
+    <>
+      {error&&<div style={{background:"#FEE2E2",borderRadius:10,padding:"10px 14px",fontSize:13,color:"var(--red)",marginBottom:12}}>{error}</div>}
+      <div className="field"><label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div>
+      <div className="field"><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/></div>
+      <div className="field"><label>Confirm Password</label><input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="••••••••"/></div>
+      <button className="btn btn-primary btn-full" onClick={submit} disabled={loading}>{loading?"Creating account…":"Create Account & Save Data"}</button>
+    </>
+  );
+}
+
 function AuthScreen() {
   const [mode,setMode]=useState("login");
   const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState("");
@@ -328,6 +361,10 @@ function AuthScreen() {
         {mode==="register"&&<div className="field"><label>Confirm Password</label><input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>}
         <button className="btn btn-primary btn-full" onClick={submit} disabled={loading} style={{marginTop:4}}>{loading?"Please wait…":mode==="login"?"Sign In":"Create Account"}</button>
         <div className="auth-switch">{mode==="login"?<>Don't have an account? <button onClick={()=>{setMode("register");setError("");}}>Sign up free</button></>:<>Already have an account? <button onClick={()=>{setMode("login");setError("");}}>Sign in</button></>}</div>
+        <div style={{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)",textAlign:"center"}}>
+          <button className="btn btn-ghost btn-full" onClick={async()=>{ try{ await signInAnonymously(auth); }catch(e){ setError("Couldn't start guest session — try again."); } }}>👀 Try without signing up</button>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:8,lineHeight:1.5}}>No account needed · data saved to this device only</div>
+        </div>
       </div>
     </div>
   );
@@ -373,6 +410,7 @@ function MainApp({ user }) {
   const [weeklyTab,setWeeklyTab]=useState("thisweek");
   const [recipesTab,setRecipesTab]=useState("saved");
   const [showMore,setShowMore]=useState(false);
+  const [showSignUpPrompt,setShowSignUpPrompt]=useState(false);
 
   // Returns the Monday date string for the current week e.g. "2026-03-09"
   const getWeekStamp = () => { const d=new Date(); const day=d.getDay(); const diff=d.getDate()-(day===0?6:day-1); const mon=new Date(d.setDate(diff)); return mon.toISOString().split("T")[0]; };
@@ -499,6 +537,13 @@ const handleSearch = async () => {
     <>
       {toast&&<div className="toast">{toast}</div>}
 
+      {user.isAnonymous&&(
+  <div style={{background:"var(--ink)",color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"space-between"}}>
+    <div style={{fontSize:12,lineHeight:1.4}}>👀 <strong>Guest mode</strong> — your data is saved to this device only</div>
+    <button className="btn btn-primary" style={{fontSize:11,padding:"5px 12px",flexShrink:0}} onClick={()=>setShowSignUpPrompt(true)}>Sign up free →</button>
+  </div>
+)}
+
       {/* ── HOME ── */}
       {tab==="home"&&<>
         <div className="page-header">
@@ -523,25 +568,33 @@ const handleSearch = async () => {
               <div style={{background:"var(--terracotta)",borderRadius:16,padding:"16px 18px",marginBottom:20,color:"#fff"}}>
                 <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.85,marginBottom:10}}>Today · {todayName}</div>
                 <div style={{fontSize:16,fontWeight:700,marginBottom:12}}>Today's Meals</div>
-                {["Breakfast","Lunch","School Lunchbox","Dinner","Other"].map(type=>{
-                  const meals=(mealPlan[todayName]||[]).filter(m=>(m.mealType||"Other")===type);
-                  return(
-                    <div key={type} style={{marginBottom:10}}>
-                      <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",opacity:0.75,marginBottom:4}}>{MEAL_TYPE_EMOJI[type]} {type}</div>
-                      {meals.length>0?meals.map((meal,i)=>(
-                        <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 10px",marginBottom:i<meals.length-1?6:0,cursor:"pointer"}} onClick={()=>setSelected(meal)}>
-                          {meal.image&&<img src={meal.image} alt={meal.title} style={{width:40,height:40,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:600,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meal.title}</div>
-                            {meal.mealType==="School Lunchbox"&&meal.lunchboxContents&&<div style={{fontSize:11,opacity:0.85,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meal.lunchboxContents}</div>}
-                          </div>
-                        </div>
-                      )):(
-                        <div style={{fontSize:12,opacity:0.65,fontStyle:"italic"}}>None selected</div>
-                      )}
-                    </div>
+                {(()=>{
+                  const todayMeals=mealPlan[todayName]||[];
+                  if(!todayMeals.length) return(
+                    <div style={{fontSize:13,opacity:0.75,fontStyle:"italic"}}>No meals selected for today</div>
                   );
-                })}
+                  return ["Breakfast","Lunch","Dinner","Snack","Other"].map(type=>{
+                    const meals=todayMeals.filter(m=>type==="Lunch"
+                      ?["Lunch","School Lunchbox"].includes(m.mealType||"Other")
+                      :(m.mealType||"Other")===type
+                    );
+                    if(!meals.length) return null;
+                    return(
+                      <div key={type} style={{marginBottom:10}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",opacity:0.75,marginBottom:4}}>{MEAL_TYPE_EMOJI[type]} {type}</div>
+                        {meals.map((meal,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 10px",marginBottom:i<meals.length-1?6:0,cursor:"pointer"}} onClick={()=>setSelected(meal)}>
+                            {meal.image&&<img src={meal.image} alt={meal.title} style={{width:40,height:40,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontWeight:600,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meal.title}</div>
+                              {meal.mealType==="School Lunchbox"&&meal.lunchboxContents&&<div style={{fontSize:11,opacity:0.85,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meal.lunchboxContents}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
 
               {/* Rest of the week — compact */}
@@ -846,8 +899,8 @@ const handleSearch = async () => {
           </>}
           <div className="divider" style={{marginTop:28}}/>
           <div className="user-row">
-            <div className="user-avatar">{user.email[0].toUpperCase()}</div>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{user.email}</div><div style={{fontSize:11,color:"var(--muted)"}}>Signed in</div></div>
+            <div className="user-avatar">{user.isAnonymous?"👤":user.email[0].toUpperCase()}</div>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{user.isAnonymous?"Guest user":user.email}</div><div style={{fontSize:11,color:"var(--muted)"}}>{user.isAnonymous?"Guest mode":"Signed in"}</div></div>
             <button className="btn btn-ghost btn-sm" onClick={()=>setTab("settings")}>⚙️ Settings</button>
           </div>
         </div>
@@ -894,12 +947,24 @@ const handleSearch = async () => {
           </div>
           <div className="divider" style={{marginTop:28}}/>
           <div className="user-row">
-            <div className="user-avatar">{user.email[0].toUpperCase()}</div>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{user.email}</div><div style={{fontSize:11,color:"var(--muted)"}}>Signed in</div></div>
+            <div className="user-avatar">{user.isAnonymous?"👤":user.email[0].toUpperCase()}</div>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{user.isAnonymous?"Guest user":user.email}</div><div style={{fontSize:11,color:"var(--muted)"}}>{user.isAnonymous?"Guest mode":"Signed in"}</div></div>
             <button className="btn btn-ghost btn-sm" onClick={()=>signOut(auth)}>Sign out</button>
           </div>
         </div>
       </>}
+
+{showSignUpPrompt&&(
+  <div className="modal-overlay" onClick={()=>setShowSignUpPrompt(false)}>
+    <div className="modal" onClick={e=>e.stopPropagation()}>
+      <div className="modal-handle"/>
+      <div className="modal-title">Save your data permanently</div>
+      <p style={{fontSize:14,color:"var(--muted)",marginBottom:24,lineHeight:1.6}}>Create a free account to keep your recipes and plans safe across any device. Your existing data will transfer automatically.</p>
+      <GuestSignUpForm auth={auth} onSuccess={()=>setShowSignUpPrompt(false)}/>
+      <button className="btn btn-ghost btn-sm" style={{width:"100%",marginTop:12,color:"var(--muted)"}} onClick={()=>setShowSignUpPrompt(false)}>Maybe later</button>
+    </div>
+  </div>
+)}
 
       {archivePrompt&&<ArchivePromptModal suggestedName={archivePrompt.suggestedName} onConfirm={confirmArchive} onSkip={()=>setArchivePrompt(null)}/>}
      {selected&&<RecipeModal recipe={selected} isFav={isFav(selected.id)} onClose={()=>setSelected(null)} onFav={()=>toggleFav(selected)} onAddToPlan={(selDays,mealType,s)=>{selDays.forEach(d=>addToPlan({...selected,mealType,plannedServings:s},d));setSelected(null);}} days={DAYS} defaultServings={defaultServings} savedPlans={savedPlans}/>}
@@ -952,8 +1017,8 @@ const handleSearch = async () => {
         ))}
         <div className="side-nav-bottom">
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-            <div className="user-avatar" style={{width:28,height:28,fontSize:12}}>{user.email[0].toUpperCase()}</div>
-            <div style={{fontSize:12,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{user.email}</div>
+            <div className="user-avatar" style={{width:28,height:28,fontSize:12}}>{user.isAnonymous?"👤":user.email[0].toUpperCase()}</div>
+            <div style={{fontSize:12,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{user.isAnonymous?"Guest user":user.email}</div>
           </div>
           <button className="btn btn-ghost btn-sm" style={{width:"100%"}} onClick={()=>signOut(auth)}>Sign out</button>
         </div>
@@ -1003,7 +1068,7 @@ function ThisWeekDay({day,meals,onMealClick,onUpdateServings,onRemove}){
       {expanded&&(
         <div className="day-meals" style={{padding:"0 15px 12px"}}>
           {!hasMeals?(
-            <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic",paddingTop:4}}>No meals — go to Search or Recipes to add some.</div>
+            <div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic",paddingTop:4}}>No meals — go to Recipes to add some.</div>
           ):meals.map((meal,idx)=>(
             <div key={idx} className="planned-meal" onClick={()=>onMealClick(meal)}>
               <div className="planned-meal-thumb">
