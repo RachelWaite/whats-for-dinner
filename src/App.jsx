@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc, collection, addDoc, deleteDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { Home, Search, Heart, ChefHat, BookMarked, CalendarDays, ShoppingCart, Settings } from "lucide-react";
+import { Home, ChefHat, Notebook, ShoppingCart, Ellipsis, Search, Heart, BookMarked, CalendarDays, Settings } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STYLES
@@ -227,13 +227,10 @@ const MEAL_TYPES = ["Breakfast","Lunch","Dinner","Snack","School Lunchbox","Othe
 const MEAL_TYPE_EMOJI = {Breakfast:"🍳",Lunch:"🥪",Dinner:"🍽️",Snack:"🍎","School Lunchbox":"🎒",Other:"✨"};
 const NAV_ITEMS=[
   {id:"home",icon:Home,label:"Home"},
-  {id:"search",icon:Search,label:"Search"},
-  {id:"favs",icon:Heart,label:"Saved Recipes"},
-  {id:"mymeals",icon:ChefHat,label:"My Meals"},
-  {id:"savedplans",icon:BookMarked,label:"Plans"},
-  {id:"plan",icon:CalendarDays,label:"This Week"},
-  {id:"shop",icon:ShoppingCart,label:"Shop"},
-  {id:"settings",icon:Settings,label:"Settings"},
+  {id:"recipes",icon:ChefHat,label:"Recipes"},
+  {id:"weeklyplans",icon:Notebook,label:"Weekly Plans"},
+  {id:"shop",icon:ShoppingCart,label:"Shopping List"},
+  {id:"more",icon:Ellipsis,label:"More"},
 ];
 
 function parseMeal(m) {
@@ -373,6 +370,9 @@ function MainApp({ user }) {
   const [loadedPlan,setLoadedPlan]=useState(null);
   const [saveAsMode,setSaveAsMode]=useState(false);
   const [toast,setToast]=useState(null);
+  const [weeklyTab,setWeeklyTab]=useState("thisweek");
+  const [recipesTab,setRecipesTab]=useState("saved");
+  const [showMore,setShowMore]=useState(false);
 
   // Returns the Monday date string for the current week e.g. "2026-03-09"
   const getWeekStamp = () => { const d=new Date(); const day=d.getDay(); const diff=d.getDate()-(day===0?6:day-1); const mon=new Date(d.setDate(diff)); return mon.toISOString().split("T")[0]; };
@@ -679,6 +679,35 @@ const handleSearch = async () => {
         </div>
       </>}
 
+{/* ── RECIPES CONTAINER ── */}
+      {tab==="recipes"&&<>
+        <div className="page-header">
+          <div className="page-title">Recipes</div>
+        </div>
+        <div className="page-content">
+          <div className="search-box" style={{marginBottom:14,cursor:"pointer"}} onClick={()=>setTab("search")}>
+            <Search size={16} color="var(--muted)"/>
+            <span style={{color:"var(--muted)",fontSize:14}}>Search for new recipes…</span>
+          </div>
+          <div className="toggle-tabs" style={{display:"flex",background:"var(--warm)",borderRadius:12,padding:4,marginBottom:18}}>
+            <button onClick={()=>setRecipesTab("saved")} style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+              background:recipesTab==="saved"?"var(--card)":"transparent",
+              color:recipesTab==="saved"?"var(--ink)":"var(--muted)",
+              boxShadow:recipesTab==="saved"?"var(--shadow)":"none",transition:"all 0.2s"}}>
+              ❤️ Saved Recipes
+            </button>
+            <button onClick={()=>setRecipesTab("mymeals")} style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+              background:recipesTab==="mymeals"?"var(--card)":"transparent",
+              color:recipesTab==="mymeals"?"var(--ink)":"var(--muted)",
+              boxShadow:recipesTab==="mymeals"?"var(--shadow)":"none",transition:"all 0.2s"}}>
+              🍳 My Meals
+            </button>
+          </div>
+          {recipesTab==="saved"&&<SavedRecipesContent favourites={favourites} isFav={isFav} toggleFav={toggleFav} setSelected={setSelected} savedPlans={savedPlans} recipePrefs={recipePrefs} saveRecipePref={saveRecipePref} nutritionDisplay={nutritionDisplay} addToPlan={addToPlan} addToExistingPlan={addToExistingPlan} setNewPlanSeed={setNewPlanSeed} defaultServings={defaultServings}/>}
+          {recipesTab==="mymeals"&&<MyMealsContent customRecipes={customRecipes} savedPlans={savedPlans} deleteCustomRecipe={deleteCustomRecipe} setEditingRecipe={setEditingRecipe} setShowCustomForm={setShowCustomForm} addToPlan={addToPlan} addToExistingPlan={addToExistingPlan} setNewPlanSeed={setNewPlanSeed} defaultServings={defaultServings}/>}
+        </div>
+      </>}
+
       {/* ── SAVED RECIPES ── */}
       {tab==="favs"&&<>
         <div className="page-header"><div className="page-title">Saved <em>Recipes</em></div><div className="page-subtitle">{favourites.length} recipe{favourites.length!==1?"s":""} saved from search</div></div>
@@ -700,7 +729,32 @@ const handleSearch = async () => {
         </div>
       </>}
 
-      {/* ── THIS WEEK ── */}
+{/* ── WEEKLY PLANS CONTAINER ── */}
+      {tab==="weeklyplans"&&<>
+        <div className="page-header">
+          <div className="page-title">Weekly <em>Plans</em></div>
+        </div>
+        <div className="page-content">
+          <div className="toggle-tabs" style={{display:"flex",background:"var(--warm)",borderRadius:12,padding:4,marginBottom:18}}>
+            <button onClick={()=>setWeeklyTab("thisweek")} style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+              background:weeklyTab==="thisweek"?"var(--card)":"transparent",
+              color:weeklyTab==="thisweek"?"var(--ink)":"var(--muted)",
+              boxShadow:weeklyTab==="thisweek"?"var(--shadow)":"none",transition:"all 0.2s"}}>
+              📅 This Week
+            </button>
+            <button onClick={()=>setWeeklyTab("savedplans")} style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+              background:weeklyTab==="savedplans"?"var(--card)":"transparent",
+              color:weeklyTab==="savedplans"?"var(--ink)":"var(--muted)",
+              boxShadow:weeklyTab==="savedplans"?"var(--shadow)":"none",transition:"all 0.2s"}}>
+              📋 Saved Plans
+            </button>
+          </div>
+          {weeklyTab==="thisweek"&&<ThisWeekContent mealPlan={mealPlan} totalMeals={totalMeals} loadedPlan={loadedPlan} saveAsMode={saveAsMode} setSaveAsMode={setSaveAsMode} setLoadedPlan={setLoadedPlan} saveSavedPlanEdits={saveSavedPlanEdits} saveCurrentPlan={saveCurrentPlan} clearPlan={clearPlan} updateServings={updateServings} removeFromPlan={removeFromPlan} setSelected={setSelected} setEditingRecipe={setEditingRecipe} setTab={setTab} setNewPlanSeed={setNewPlanSeed}/>}
+          {weeklyTab==="savedplans"&&<SavedPlansContent savedPlans={savedPlans} loadSavedPlan={loadSavedPlan} setEditingSavedPlan={setEditingSavedPlan} deleteSavedPlan={deleteSavedPlan} setNewPlanSeed={setNewPlanSeed}/>}
+        </div>
+      </>}
+
+      {/* ── THIS WEEK (legacy direct tab, kept for internal navigation) ── */}
       {tab==="plan"&&<>
         <div className="page-header">
           <div className="page-title">This <em>week</em></div>
@@ -852,6 +906,37 @@ const handleSearch = async () => {
       {showCustomForm&&<CustomRecipeFormModal onClose={()=>setShowCustomForm(false)} onSave={saveCustomRecipe}/>}
       {editingRecipe&&<CustomRecipeFormModal recipe={editingRecipe} isEdit onClose={()=>setEditingRecipe(null)} onSave={async data=>{ await editCustomRecipe(editingRecipe.id,data); }}/>}
       {editingSavedPlan&&<EditSavedPlanModal plan={editingSavedPlan} onClose={()=>setEditingSavedPlan(null)} onSave={(updatedPlan,name)=>saveSavedPlanEdits(editingSavedPlan.id,updatedPlan,name)} favourites={favourites} customRecipes={customRecipes} days={DAYS} defaultServings={defaultServings}/>}
+        {showMore&&(
+        <div className="modal-overlay" onClick={()=>setShowMore(false)}>
+          <div className="modal" style={{maxHeight:"70vh"}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"'Playfair Display',serif",marginBottom:20}}>More</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Account</div>
+              <button className="btn btn-ghost" style={{justifyContent:"flex-start",gap:12,padding:"12px 8px",fontSize:14}} onClick={()=>{setShowMore(false);setTab("settings");}}>
+                <Settings size={18}/> Settings
+              </button>
+              <button className="btn btn-ghost" style={{justifyContent:"flex-start",gap:12,padding:"12px 8px",fontSize:14,color:"var(--muted)"}} onClick={()=>signOut(auth)}>
+                <span style={{width:18,textAlign:"center"}}>👋</span> Sign out
+              </button>
+              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,margin:"16px 0 6px"}}>Help</div>
+              <button className="btn btn-ghost" style={{justifyContent:"flex-start",gap:12,padding:"12px 8px",fontSize:14,color:"var(--muted)"}}>
+                <span style={{width:18,textAlign:"center"}}>❓</span> Help & FAQs <span style={{fontSize:11,marginLeft:"auto"}}>Coming soon</span>
+              </button>
+              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:1,margin:"16px 0 6px"}}>Coming Soon</div>
+              <button className="btn btn-ghost" style={{justifyContent:"flex-start",gap:12,padding:"12px 8px",fontSize:14,color:"var(--muted)"}}>
+                <span style={{width:18,textAlign:"center"}}>🌍</span> Community
+              </button>
+              <button className="btn btn-ghost" style={{justifyContent:"flex-start",gap:12,padding:"12px 8px",fontSize:14,color:"var(--muted)"}}>
+                <span style={{width:18,textAlign:"center"}}>📖</span> Blog & Inspiration
+              </button>
+            </div>
+            <div style={{marginTop:20,paddingTop:16,borderTop:"1px solid var(--border)",fontSize:11,color:"var(--muted)",textAlign:"center"}}>
+              What's for Dinner? v1.1
+            </div>
+          </div>
+        </div>
+      )}
       {newPlanSeed&&<EditSavedPlanModal plan={{id:null,name:"New Plan",plan:newPlanSeed.plan}} isNew onClose={()=>setNewPlanSeed(null)} onSave={async(updatedPlan,name)=>{ const totalMeals=Object.values(updatedPlan).reduce((s,d)=>s+d.length,0); const id=await fsAddToCollection(uid,"savedPlans",{name,plan:updatedPlan,mealCount:totalMeals}); if(id){setSavedPlans(prev=>[{id,name,plan:updatedPlan,mealCount:totalMeals,savedAt:{seconds:Date.now()/1000}},...prev]);showToast(`✅ "${name}" saved!`);} setNewPlanSeed(null); }} favourites={favourites} customRecipes={customRecipes} days={DAYS} defaultServings={defaultServings}/>}
     </>
   );
@@ -861,7 +946,7 @@ const handleSearch = async () => {
       <nav className="side-nav">
         <div className="side-nav-logo" style={{cursor:"pointer"}} onClick={()=>setTab("home")}>What's for <em>Dinner?</em></div>
         {NAV_ITEMS.map(n=>(
-          <button key={n.id} className={`side-nav-btn ${tab===n.id?"active":""}`} onClick={()=>setTab(n.id)}>
+          <button key={n.id} className={`side-nav-btn ${tab===n.id?"active":""}`} onClick={()=>n.id==="more"?setShowMore(true):setTab(n.id)}>
             <span className="nav-icon"><n.icon size={20} strokeWidth={1.8}/></span>{n.label}
           </button>
         ))}
@@ -876,7 +961,7 @@ const handleSearch = async () => {
       <div className="main-area">{pages}</div>
       <nav className="bottom-nav">
         {NAV_ITEMS.map(n=>(
-          <button key={n.id} className={`nav-btn ${tab===n.id?"active":""}`} onClick={()=>setTab(n.id)}>
+          <button key={n.id} className={`nav-btn ${tab===n.id?"active":""}`} onClick={()=>n.id==="more"?setShowMore(true):setTab(n.id)}>
             <span className="nav-icon"><n.icon size={20} strokeWidth={1.8}/></span>{n.label}
           </button>
         ))}
@@ -1306,6 +1391,112 @@ function CustomRecipeCard({recipe,onAddToThisWeek,onAddToNewPlan,onAddToExisting
         )}
       </div>
     </div>
+  );
+}
+
+function ThisWeekContent({mealPlan,totalMeals,loadedPlan,saveAsMode,setSaveAsMode,setLoadedPlan,saveSavedPlanEdits,saveCurrentPlan,clearPlan,updateServings,removeFromPlan,setSelected,setEditingRecipe,setTab,setNewPlanSeed}){
+  return(
+    <>
+      {!totalMeals?(
+        <div style={{textAlign:"center",paddingTop:20}}>
+          <div style={{fontSize:56,marginBottom:12}}>📅</div>
+          <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:22,marginBottom:8}}>Nothing planned yet</h3>
+          <p style={{color:"var(--muted)",fontSize:14,marginBottom:28,lineHeight:1.6}}>Load one of your saved plans to get started, or head to Recipes to find meals to add.</p>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <button className="btn btn-primary btn-full" onClick={()=>setTab("weeklyplans")}>📋 Load a Saved Plan</button>
+            <button className="btn btn-forest btn-full" onClick={()=>setTab("recipes")}>🍳 Browse Recipes</button>
+          </div>
+        </div>
+      ):(
+        <>
+          {loadedPlan?(
+            <div style={{background:"var(--card)",borderRadius:14,padding:"14px 16px",marginBottom:14,boxShadow:"var(--shadow)"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"var(--ink)",marginBottom:4}}>📋 This week you are using the saved plan: {loadedPlan.name}</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>You can tweak this plan here, but any changes you make won't be saved automatically.</div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-forest btn-sm" style={{flex:1}} onClick={()=>{ if(window.confirm(`Overwrite "${loadedPlan.name}" with the current week?`)){saveSavedPlanEdits(loadedPlan.id,mealPlan,loadedPlan.name);setLoadedPlan(null);} }}>💾 Overwrite</button>
+                <button className="btn btn-ghost btn-sm" style={{flex:1}} onClick={()=>{ setNewPlanSeed(null); setSaveAsMode(true); }}>✨ Save as new</button>
+              </div>
+            </div>
+          ):(
+            <div style={{background:"var(--card)",borderRadius:14,padding:"14px 16px",marginBottom:14,boxShadow:"var(--shadow)"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"var(--ink)",marginBottom:4}}>📝 Unsaved plan</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>This week's plan hasn't been saved yet. Give it a name below if you'd like to keep a copy for future use.</div>
+              <SavePlanBar onSave={saveCurrentPlan}/>
+            </div>
+          )}
+          {saveAsMode&&(
+            <div style={{background:"var(--card)",borderRadius:14,padding:"14px 16px",marginBottom:14,boxShadow:"var(--shadow)"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"var(--ink)",marginBottom:10}}>Save as a new plan</div>
+              <SavePlanBar onSave={name=>{ saveCurrentPlan(name); setSaveAsMode(false); setLoadedPlan(null); }}/>
+              <button className="btn btn-ghost btn-sm" style={{width:"100%",marginTop:6,color:"var(--muted)"}} onClick={()=>setSaveAsMode(false)}>Cancel</button>
+            </div>
+          )}
+          <button className="btn btn-danger btn-sm" style={{marginBottom:14,width:"100%"}} onClick={()=>{if(window.confirm("Clear the whole week?"))clearPlan();}}>🗑 Clear entire week</button>
+          {DAYS.map(day=>(
+            <ThisWeekDay key={day} day={day} meals={mealPlan[day]||[]}
+              onMealClick={meal=>{ if(meal.source==="custom")setEditingRecipe(meal); else setSelected(meal); }}
+              onUpdateServings={(idx,delta)=>updateServings(day,idx,delta)}
+              onRemove={idx=>removeFromPlan(day,idx)}
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function SavedPlansContent({savedPlans,loadSavedPlan,setEditingSavedPlan,deleteSavedPlan,setNewPlanSeed}){
+  return(
+    <>
+      {!savedPlans.length
+        ?<div className="empty-state"><div className="emoji">📋</div><h3>No saved plans yet</h3><p>Build a week of meals and save it as a plan to reuse it anytime.</p></div>
+        :savedPlans.map(sp=>(
+          <div key={sp.id} className="plan-card">
+            <div className="plan-card-title">{sp.name}</div>
+            <div className="plan-card-meta">{sp.mealCount} meals</div>
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button className="btn btn-forest btn-sm" style={{flex:1}} onClick={()=>loadSavedPlan(sp)}>📅 Load</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setEditingSavedPlan(sp)}>✏️ Edit</button>
+              <button className="btn btn-danger btn-sm" onClick={()=>{ if(window.confirm(`Delete "${sp.name}"?`))deleteSavedPlan(sp.id); }}>🗑</button>
+            </div>
+          </div>
+        ))
+      }
+      <button className="btn btn-forest btn-full" style={{marginTop:8}} onClick={()=>setNewPlanSeed({plan:EMPTY_PLAN()})}>✨ Create New Plan</button>
+    </>
+  );
+}
+
+function SavedRecipesContent({favourites,isFav,toggleFav,setSelected,savedPlans,recipePrefs,saveRecipePref,nutritionDisplay,addToPlan,addToExistingPlan,setNewPlanSeed}){
+  return(
+    <>
+      <div style={{background:"var(--warm)",borderRadius:12,padding:"10px 14px",fontSize:13,color:"var(--muted)",marginBottom:14,lineHeight:1.5}}>
+        💡 These are recipes you've saved from Search. Use the filters below to find them, or use the search bar above to discover new ones.
+      </div>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{favourites.length} recipe{favourites.length!==1?"s":""} saved from search</div>
+      <FavouritesFilter favourites={favourites} onView={r=>setSelected(r)} onFav={r=>toggleFav(r)} isFav={isFav}
+        onAddToThisWeek={(r,selDays,mealType,servings)=>selDays.forEach(d=>addToPlan({...r,mealType,plannedServings:servings},d))}
+        onAddToNewPlan={(r,selDays,mealType,servings)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:servings}]); setNewPlanSeed({plan:seed}); }}
+        onAddToExistingPlan={(r,sp,selDays,mealType,servings)=>addToExistingPlan(sp,{...r,mealType,plannedServings:servings},selDays)}
+        savedPlans={savedPlans} recipePrefs={recipePrefs} onSaveMealType={(id,mt)=>saveRecipePref(id,mt)} nutritionDisplay={nutritionDisplay} days={DAYS}/>
+    </>
+  );
+}
+
+function MyMealsContent({customRecipes,savedPlans,deleteCustomRecipe,setEditingRecipe,setShowCustomForm,addToPlan,addToExistingPlan,setNewPlanSeed,defaultServings}){
+  return(
+    <>
+      <div style={{background:"var(--warm)",borderRadius:12,padding:"10px 14px",fontSize:13,color:"var(--muted)",marginBottom:14,lineHeight:1.5}}>
+        🍳 These are meals and recipes you've created yourself — lunchboxes, family favourites, anything homemade.
+      </div>
+      <button className="btn btn-forest btn-full" style={{marginBottom:14}} onClick={()=>setShowCustomForm(true)}>✏️ Create a meal or recipe</button>
+      <MyMealsFilter customRecipes={customRecipes} savedPlans={savedPlans} days={DAYS} defaultServings={defaultServings}
+        onAddToThisWeek={(r,selDays,mealType,servings)=>selDays.forEach(d=>addToPlan({...r,mealType,plannedServings:servings},d))}
+        onAddToNewPlan={(r,selDays,mealType,servings)=>{ const seed=EMPTY_PLAN(); selDays.forEach(d=>seed[d]=[{...r,mealType,plannedServings:servings}]); setNewPlanSeed({plan:seed}); }}
+        onAddToExistingPlan={(r,sp,selDays,mealType,servings)=>addToExistingPlan(sp,{...r,mealType,plannedServings:servings},selDays)}
+        onDelete={id=>deleteCustomRecipe(id)} onEdit={r=>setEditingRecipe(r)}/>
+    </>
   );
 }
 
